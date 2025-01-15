@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strings"
 )
 
 func main() {
-  err := connectto("www.google.com:80")
+  err := connectto("www.gmail.com:80")
   if err != nil {
     log.Fatal(err)
   }
@@ -33,7 +34,7 @@ func listenAndServe(addr string) error {
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	buf := make([]byte, 1024)
+	buf := make([]byte, 4096)
 	nb, err := conn.Read(buf)
 	if err != nil {
 		log.Println(err)
@@ -56,15 +57,18 @@ func connectto(addr string) error {
 
   nb := 0
   first := true
-  all := make([]byte, 100000)
+  all := make([]byte, 10000000000)
   for nb > 0 || first {
     first = false
-    buf := make([]byte, 2048)
+    buf := make([]byte, 100000)
     nb, err = conn.Read(buf)
+    if err == io.EOF {
+      break
+    }
     if err != nil {
       return err
     }
-    all = append(all, buf...)
+    all = append(all, buf[:nb]...)
     if strings.Contains(string(buf), "\r\n\r\n"){
       break
     }
