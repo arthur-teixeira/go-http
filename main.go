@@ -1,12 +1,13 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"net"
 
-	"github.com/arthur-teixeira/go-http/parser"
+	"github.com/arthur-teixeira/go-http/context"
+	"github.com/arthur-teixeira/go-http/status"
 )
 
 func main() {
@@ -31,13 +32,26 @@ func listenAndServe(addr string) error {
 }
 
 func handleConnection(conn net.Conn) {
-	defer conn.Close()
-	b := bufio.NewReader(conn)
-	req, err := parser.ParseRequest(b)
-	if err != nil {
-		log.Println("Error parsing request: ", err)
-	}
+	// TODO: Create timeout for persistent connections
+	for {
+		context, err := context.NewContext(conn)
+		if err != nil {
+			if err == io.EOF {
+				continue
+			}
+			log.Println("Error building context: ", err)
+		}
 
+		handleRequest(context)
+		if context.Request.Close {
+			conn.Close()
+			break
+		}
+	}
+}
+
+func handleRequest(c *context.Context) {
+	req := c.Request
 	fmt.Println("Got request: ", req.Headers)
 	body := make([]byte, 512)
 	nb, err := req.Body.Read(body)
@@ -47,4 +61,5 @@ func handleConnection(conn net.Conn) {
 	}
 
 	fmt.Println("Request body: ", string(body))
+	c.WriteHeader(status.NoContent)
 }

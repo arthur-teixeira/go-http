@@ -52,6 +52,7 @@ func (b *body) Read(bs []byte) (int, error) {
 }
 
 type Request struct {
+	Close      bool
 	Method     string
 	Headers    Headers
 	RequestURI string
@@ -61,6 +62,10 @@ type Request struct {
 	Minor      int
 	Body       *body
 	Host       string
+}
+
+func (r Request) ProtoAtLeast(maj int, min int) bool {
+	return maj > r.Major || (maj == r.Major && min >= r.Minor)
 }
 
 // Copyright 2009 The Go Authors.
@@ -242,6 +247,7 @@ func ParseRequest(request *bufio.Reader) (*Request, error) {
 	if err != nil {
 		return nil, err
 	}
+  r.setClose()
 
 	return &r, nil
 }
@@ -271,6 +277,10 @@ func setBody(r *Request, rdr *bufio.Reader) error {
 	}
 
 	return nil
+}
+
+func (r *Request) setClose() {
+	r.Close = strings.Contains(r.Headers.Get("Connection"), "close")
 }
 
 func GetContentLength(r *Request) (int64, error) {
