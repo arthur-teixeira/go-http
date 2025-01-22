@@ -61,5 +61,6 @@ func handleRequest(c *context.Context) {
 	}
 
 	fmt.Println("Request body: ", string(body))
-	c.WriteHeader(status.NoContent)
+	c.WriteHeader(status.OK)
+  c.Write([]byte("Hello, world!\n"))
 }

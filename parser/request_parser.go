@@ -34,6 +34,11 @@ func (h Headers) Add(k string, v string) {
 	h[kk] = append(h[kk], v)
 }
 
+func (h Headers) Set(k string, v string) {
+	kk := textproto.CanonicalMIMEHeaderKey(k)
+	h[kk] = []string{v}
+}
+
 type ParserError string
 
 func stringError(what, how string) error {
@@ -247,7 +252,7 @@ func ParseRequest(request *bufio.Reader) (*Request, error) {
 	if err != nil {
 		return nil, err
 	}
-  r.setClose()
+	r.setClose()
 
 	return &r, nil
 }
