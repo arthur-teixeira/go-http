@@ -246,14 +246,28 @@ func ParseRequest(request *bufio.Reader) (*Request, error) {
 	return &r, nil
 }
 
+var NoBody = noBody{}
+
+type noBody struct{}
+
+func (noBody) Read([]byte) (int, error) { return 0, io.EOF }
+
 func setBody(r *Request, rdr *bufio.Reader) error {
 	cl, err := GetContentLength(r)
 	if err != nil {
 		return err
 	}
 
-	r.Body = &body{
-		src: io.LimitReader(rdr, cl),
+	if cl <= 0 {
+		r.Body = &body{
+			src: NoBody,
+		}
+
+	} else {
+
+		r.Body = &body{
+			src: io.LimitReader(rdr, cl),
+		}
 	}
 
 	return nil
@@ -261,6 +275,9 @@ func setBody(r *Request, rdr *bufio.Reader) error {
 
 func GetContentLength(r *Request) (int64, error) {
 	contentLens := r.Headers["Content-Length"]
+	if len(contentLens) == 0 {
+		return -1, nil
+	}
 	if len(contentLens) > 1 {
 		first := textproto.TrimString(contentLens[0])
 		for _, ct := range contentLens[1:] {

@@ -1,18 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"strings"
+
+	"github.com/arthur-teixeira/go-http/parser"
 )
 
 func main() {
-  err := connectto("www.gmail.com:80")
-  if err != nil {
-    log.Fatal(err)
-  }
+	listenAndServe(":8080")
 }
 
 func listenAndServe(addr string) error {
@@ -25,6 +23,7 @@ func listenAndServe(addr string) error {
 		conn, err := sock.Accept()
 		if err != nil {
 			log.Println("Error accepting connection: ", err)
+			continue
 		}
 
 		go handleConnection(conn)
@@ -33,48 +32,19 @@ func listenAndServe(addr string) error {
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-
-	buf := make([]byte, 4096)
-	nb, err := conn.Read(buf)
+	b := bufio.NewReader(conn)
+	req, err := parser.ParseRequest(b)
 	if err != nil {
-		log.Println(err)
-		return
-	}
-	fmt.Printf("Received %s\n", buf[:nb])
-}
-
-func connectto(addr string) error {
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	_, err = conn.Write([]byte("GET /\r\nHTTP/1.1\r\n\r\n"))
-	if err != nil {
-		return err
+		log.Println("Error parsing request: ", err)
 	}
 
-  nb := 0
-  first := true
-  all := make([]byte, 10000000000)
-  for nb > 0 || first {
-    first = false
-    buf := make([]byte, 100000)
-    nb, err = conn.Read(buf)
-    if err == io.EOF {
-      break
-    }
-    if err != nil {
-      return err
-    }
-    all = append(all, buf[:nb]...)
-    if strings.Contains(string(buf), "\r\n\r\n"){
-      break
-    }
-  }
+	fmt.Println("Got request: ", req.Headers)
+	body := make([]byte, 512)
+	nb, err := req.Body.Read(body)
+	body = body[:nb]
+	if err != nil {
+		log.Println("Error reading request body: ", err)
+	}
 
-	fmt.Printf("Got response: %s\nwith %d bytes\n", all, nb)
-
-	return nil
+	fmt.Println("Request body: ", string(body))
 }
