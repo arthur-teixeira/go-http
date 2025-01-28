@@ -2,9 +2,13 @@ package context
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -55,11 +59,10 @@ func (c *Context) WriteHeader(code int) {
 	c.wroteHeader = true
 }
 
-// Writes the response headers to the underlying connection
-func (c *Context) writeHeaders() (int, error) {
+func writeHeaders(req *parser.Request, bw *bufio.Writer, contentLen int, hdrs parser.Headers) (int, error) {
 	written := 0
-	if c.Request.Close {
-		n, err := c.Response.bw.WriteString("Connection: close\r\n")
+	if req.Close {
+		n, err := bw.WriteString("Connection: close\r\n")
 		if err != nil {
 			return -1, err
 		}
@@ -67,8 +70,8 @@ func (c *Context) writeHeaders() (int, error) {
 		written += n
 	}
 
-	if c.Response.contentLen > 0 {
-		n, err := c.Response.bw.WriteString("Content-Length: " + strconv.Itoa(c.Response.contentLen) + "\r\n")
+	if contentLen > 0 {
+		n, err := bw.WriteString("Content-Length: " + strconv.Itoa(contentLen) + "\r\n")
 		if err != nil {
 			return -1, err
 		}
@@ -76,7 +79,7 @@ func (c *Context) writeHeaders() (int, error) {
 	}
 
 	// Assuming key is in canonical form when inserted
-	for k, v := range c.Response.Headers {
+	for k, v := range hdrs {
 		final := ""
 		for _, vv := range v {
 			trimmed := strings.TrimSpace(vv)
@@ -90,36 +93,41 @@ func (c *Context) writeHeaders() (int, error) {
 		}
 		final = final[2:]
 
-		n, err := c.Response.bw.WriteString(strings.TrimSpace(k))
+		n, err := bw.WriteString(strings.TrimSpace(k))
 		if err != nil {
 			return -1, err
 		}
 		written += n
 
-		n, err = c.Response.bw.WriteString(": ")
+		n, err = bw.WriteString(": ")
 		if err != nil {
 			return -1, err
 		}
 		written += n
 
-		n, err = c.Response.bw.WriteString(final)
+		n, err = bw.WriteString(final)
 		if err != nil {
 			return -1, err
 		}
 		written += n
 
-		n, err = c.Response.bw.WriteString("\r\n")
+		n, err = bw.WriteString("\r\n")
 		if err != nil {
 			return -1, err
 		}
 		written += n
 	}
 
-	n, err := c.Response.bw.WriteString("\r\n")
+	n, err := bw.WriteString("\r\n")
 	if err != nil {
 		return -1, err
 	}
 	return written + n, nil
+}
+
+// Writes the response headers to the underlying connection
+func (c *Context) writeHeaders() (int, error) {
+	return writeHeaders(c.Request, c.Response.bw, c.Response.contentLen, c.Request.Headers)
 }
 
 func (c *Context) Write(data []byte) (int, error) {
@@ -187,4 +195,99 @@ func NewContext(conn net.Conn) (*Context, error) {
 			status: 0,
 		},
 	}, nil
+}
+
+type Response struct {
+	Url            *url.URL
+	Status         string
+	StatusCode     int
+	Body           io.ReadCloser
+	Header         parser.Headers
+	ContentLength  int
+	TransferCoding string
+	Close          bool
+	request        *parser.Request
+}
+
+func (r *Response) CloseBody() error {
+	if r.Body == nil {
+		return nil
+	}
+	return r.Body.Close()
+}
+
+func validateMethod(method string) error {
+	switch method {
+	case "OPTIONS":
+	case "GET":
+	case "HEAD":
+	case "POST":
+	case "PUT":
+	case "DELETE":
+	case "TRACE":
+		return nil
+	default:
+		return errors.New("http: invalid method")
+	}
+
+	return nil
+}
+
+func writeRequestLine(wtr *bufio.Writer, req *parser.Request) error {
+	err := validateMethod(req.Method)
+	if err != nil {
+		return err
+	}
+
+	reqLine := req.Method + " " + req.URL.Path + "\r\n"
+	_, err = wtr.WriteString(reqLine)
+	return err
+}
+
+func Do(req *parser.Request) (*Response, error) {
+	sock, err := net.Dial("tcp", req.URL.Host)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.URL == nil {
+		return nil, errors.New("http: nil URL")
+	}
+
+	bw := bufio.NewWriter(sock)
+	err = writeRequestLine(bw, req)
+	if err != nil {
+		return nil, err
+	}
+
+	switch v := req.Body.(type) {
+	case *bytes.Buffer:
+		req.ContentLength = int64(v.Len())
+	case *bytes.Reader:
+		req.ContentLength = int64(v.Len())
+	case *strings.Reader:
+		req.ContentLength = int64(v.Len())
+	default:
+		if req.ContentLength == 0 {
+			req.Body = parser.NoBody
+		}
+	}
+
+	_, err = writeHeaders(req, bw, int(req.ContentLength), req.Headers)
+	if err != nil {
+		return nil, err
+	}
+
+	nr, err := io.Copy(bw, io.LimitReader(req.Body, req.ContentLength))
+	if err != nil {
+		return nil, err
+	}
+	if nr < req.ContentLength {
+		return nil, errors.New("http: Could not write whole body")
+	}
+
+	// TODO: Read response
+	// TODO: Read response while writing request in case Server responds before we finish.
+
+	return nil, nil
 }

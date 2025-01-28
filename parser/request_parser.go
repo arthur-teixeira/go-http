@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/arthur-teixeira/go-http/textreader"
 )
@@ -45,28 +44,18 @@ func stringError(what, how string) error {
 	return fmt.Errorf("%s %q", what, how)
 }
 
-type body struct {
-	mu  sync.Mutex
-	src io.Reader
-}
-
-func (b *body) Read(bs []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.src.Read(bs)
-}
-
 type Request struct {
-	Close      bool
-	Method     string
-	Headers    Headers
-	RequestURI string
-	URL        *url.URL
-	Version    string
-	Major      int
-	Minor      int
-	Body       *body
-	Host       string
+	Close         bool
+	ContentLength int
+	Method        string
+	Headers       Headers
+	RequestURI    string
+	URL           *url.URL
+	Version       string
+	Major         int
+	Minor         int
+	Body          io.Reader
+	Host          string
 }
 
 func (r Request) ProtoAtLeast(maj int, min int) bool {
@@ -261,7 +250,9 @@ var NoBody = noBody{}
 
 type noBody struct{}
 
-func (noBody) Read([]byte) (int, error) { return 0, io.EOF }
+func (noBody) Read([]byte) (int, error)         { return 0, io.EOF }
+func (noBody) Close() error                     { return nil }
+func (noBody) WriteTo(io.Writer) (int64, error) { return 0, nil }
 
 func setBody(r *Request, rdr *bufio.Reader) error {
 	cl, err := GetContentLength(r)
@@ -270,15 +261,9 @@ func setBody(r *Request, rdr *bufio.Reader) error {
 	}
 
 	if cl <= 0 {
-		r.Body = &body{
-			src: NoBody,
-		}
-
+		r.Body = NoBody
 	} else {
-
-		r.Body = &body{
-			src: io.LimitReader(rdr, cl),
-		}
+		r.Body = io.LimitReader(rdr, cl)
 	}
 
 	return nil

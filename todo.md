@@ -1,6 +1,8 @@
 - [X] Context (Request, Response)
-- [ ] Build responses
-- [ ] Build requests
+- [X] Build responses
+- [ ] Build requests 
+  - Read response
+  - Read response while writing request
 - [ ] Parse responses
 - [ ] Chunked transfer-coding
 - [ ] Routing

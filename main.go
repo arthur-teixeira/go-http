@@ -1,11 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
-
 	"github.com/arthur-teixeira/go-http/context"
 	"github.com/arthur-teixeira/go-http/status"
 )
@@ -62,5 +62,8 @@ func handleRequest(c *context.Context) {
 
 	fmt.Println("Request body: ", string(body))
 	c.WriteHeader(status.OK)
-  c.Write([]byte("Hello, world!\n"))
+	res, _ := json.Marshal(map[string]string{
+		"Hello": "World!",
+	})
+	c.Write(res)
 }
