@@ -2,6 +2,7 @@ package parser
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -38,15 +39,15 @@ func (h Headers) Set(k string, v string) {
 	h[kk] = []string{v}
 }
 
-type ParserError string
-
-func stringError(what, how string) error {
+func StringError(what, how string) error {
 	return fmt.Errorf("%s %q", what, how)
 }
 
 type Request struct {
+	Ctx           context.Context
+	Cancel        <-chan struct{}
 	Close         bool
-	ContentLength int
+	ContentLength int64
 	Method        string
 	Headers       Headers
 	RequestURI    string
@@ -55,7 +56,16 @@ type Request struct {
 	Major         int
 	Minor         int
 	Body          io.Reader
+	ReadBody      func() (io.ReadCloser, error)
 	Host          string
+}
+
+func (r *Request) Context() context.Context {
+	if r.Ctx != nil {
+		return r.Ctx
+	}
+
+	return context.Background()
 }
 
 func (r Request) ProtoAtLeast(maj int, min int) bool {
@@ -202,12 +212,12 @@ func ParseRequest(request *bufio.Reader) (*Request, error) {
 
 	method, uri, proto, ok := parseRequestLine(line)
 	if !ok {
-		return nil, stringError("Malformed HTTP request", method)
+		return nil, StringError("Malformed HTTP request", method)
 	}
 
 	r.Major, r.Minor, ok = ParseHttpVersion(proto)
 	if !ok {
-		return nil, stringError("Invalid protocol version", uri)
+		return nil, StringError("Invalid protocol version", uri)
 	}
 	r.Method = method
 	r.Version = proto

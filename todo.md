@@ -1,10 +1,15 @@
 - [X] Context (Request, Response)
 - [X] Build responses
-- [ ] Build requests 
-  - Read response
-  - Read response while writing request
-- [ ] Parse responses
-- [ ] Chunked transfer-coding
+- [X] Build requests 
+- [X] Parse responses
+- [X] Continue request chain in case of 3xx responses
+- [X] Implement request deadline (timeout)
+- [ ] Chunked transfer-encoding
+  - [ ] Writing
+  - [ ] Reading
+- [ ] Build persistent connection manager to keep track of alive TCP sockets
+- [ ] Handle gzip bodies
 - [ ] Routing
-  - [ ] Wildcards
-
+- [ ] Build proxy functionality (CONNECT method)
+- [ ] HTTPS (?)
+- [ ] Answer HEAD requests correctly

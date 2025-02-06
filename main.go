@@ -1,17 +1,46 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"net/url"
+
 	"github.com/arthur-teixeira/go-http/context"
+	"github.com/arthur-teixeira/go-http/parser"
 	"github.com/arthur-teixeira/go-http/status"
 )
 
 func main() {
-	listenAndServe(":8080")
+	// listenAndServe(":8080")
+
+	// res, err :=  http.DefaultClient.Get("http://yahoo.com")
+
+	url, err := url.ParseRequestURI("http://google.com")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	res, err := context.DefaultClient.Do(&parser.Request{
+		URL:     url,
+		Method:  "GET",
+		Version: "HTTP/1.1",
+		Major:   1,
+		Minor:   1,
+	})
+
+	if err != nil {
+		log.Fatal("Error on request", err)
+	}
+
+	fmt.Printf("Response: %#v\n", res)
+
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(res.Body)
+	fmt.Printf("Response body: %s\n", buf.String())
 }
 
 func listenAndServe(addr string) error {
