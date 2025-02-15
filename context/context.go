@@ -485,7 +485,7 @@ func send(req *parser.Request, deadline time.Time) (*parser.Response, func() boo
 		return nil, didTimeout, err
 	}
 
-	if res == nil {
+	if res.Body == nil {
 		res.Body = strings.NewReader("")
 	}
 
@@ -500,7 +500,7 @@ func send(req *parser.Request, deadline time.Time) (*parser.Response, func() boo
 	return res, nil, nil
 }
 
-func redirectBehavior(reqMethod string, res *parser.Response, initialRequest *parser.Request) (redirectMethod string, shouldRedirect bool, includeBody bool) {
+func redirectBehavior(reqMethod string, res *parser.Response) (redirectMethod string, shouldRedirect bool, includeBody bool) {
 	switch res.StatusCode {
 	case status.MovedPermanently, status.Found, status.SeeOther:
 		redirectMethod = reqMethod
@@ -513,7 +513,7 @@ func redirectBehavior(reqMethod string, res *parser.Response, initialRequest *pa
 		if reqMethod != "GET" && reqMethod != "HEAD" {
 			redirectMethod = "GET"
 		}
-	case status.TemporaryRedirect:
+	case status.TemporaryRedirect, status.PermanentRedirect:
 		redirectMethod = reqMethod
 		shouldRedirect = true
 		includeBody = true
