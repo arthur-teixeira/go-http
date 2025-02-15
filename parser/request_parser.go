@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/arthur-teixeira/go-http/chunked_reader"
+	"github.com/arthur-teixeira/go-http/chunkedreader"
 	"github.com/arthur-teixeira/go-http/textreader"
 )
 
@@ -268,7 +268,7 @@ func (noBody) Read([]byte) (int, error)         { return 0, io.EOF }
 func (noBody) Close() error                     { return nil }
 func (noBody) WriteTo(io.Writer) (int64, error) { return 0, nil }
 
-func parseTransferCoding(r *Request) error {
+func parseTransferCoding(r *Transfer) error {
 	val, ok := r.Headers["Transfer-Encoding"]
 	if !ok {
 		return nil
@@ -292,28 +292,72 @@ func parseTransferCoding(r *Request) error {
 	return nil
 }
 
-func setBody(r *Request, rdr *bufio.Reader) error {
-	if err := parseTransferCoding(r); err != nil {
+type Transfer struct {
+	Body          io.Reader
+	Trailer       Headers
+	Headers       Headers
+	ContentLength int64
+	Major         int
+	Minor         int
+	Version       string
+	Chunked       bool
+}
+
+func (t *Transfer) ProtoAtLeast(maj int, min int) bool {
+	return maj > t.Major || (maj == t.Major && min >= t.Minor)
+}
+
+// takes in either *Request or *Response
+func setBody(r any, rdr *bufio.Reader) error {
+	tr := Transfer{}
+
+	switch rr := r.(type) {
+	case *Request:
+		tr.Headers = rr.Headers
+		tr.Major = rr.Major
+		tr.Minor = rr.Minor
+		tr.Version = rr.Version
+	case *Response:
+		tr.Headers = rr.Headers
+		tr.Major = rr.Major
+		tr.Minor = rr.Minor
+		tr.Version = rr.Version
+	}
+
+	if err := parseTransferCoding(&tr); err != nil {
 		return err
 	}
 
-	cl, err := GetContentLength(r)
+	cl, err := GetContentLength(&tr)
 	if err != nil {
 		return err
 	}
 
-	r.Trailer, err = getTrailer(r.Headers, r.Chunked)
+	tr.Trailer, err = getTrailer(tr.Headers, tr.Chunked)
 	if err != nil {
 		return err
 	}
 
 	switch {
-	case r.Chunked:
-		r.Body = chunked_reader.NewChunkedReader(rdr)
+	case tr.Chunked:
+		tr.Body = chunkedreader.NewChunkedReader(rdr)
 	case cl == 0:
-		r.Body = NoBody
+		tr.Body = NoBody
 	default:
-		r.Body = io.LimitReader(rdr, cl)
+		tr.Body = io.LimitReader(rdr, cl)
+	}
+
+	switch rr := r.(type) {
+	case *Request:
+		rr.Body = tr.Body
+		rr.Trailer = tr.Trailer
+		rr.Chunked = tr.Chunked
+		rr.ContentLength = tr.ContentLength
+	case *Response:
+		rr.Body = tr.Body
+		rr.Trailer = tr.Trailer
+		rr.Chunked = tr.Chunked
+		rr.ContentLength = tr.ContentLength
 	}
 
 	return nil
@@ -377,7 +421,7 @@ func (r *Request) setClose() {
 	r.Close = strings.Contains(r.Headers.Get("Connection"), "close")
 }
 
-func GetContentLength(r *Request) (int64, error) {
+func GetContentLength(r *Transfer) (int64, error) {
 	contentLens := r.Headers["Content-Length"]
 	if len(contentLens) == 0 {
 		return -1, nil

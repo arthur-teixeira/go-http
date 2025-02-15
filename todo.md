@@ -6,7 +6,7 @@
 - [X] Implement request deadline (timeout)
 - [ ] Chunked transfer-encoding
   - [ ] Writing
-  - [ ] Reading
+  - [X] Reading
 - [ ] Build persistent connection manager to keep track of alive TCP sockets
 - [ ] Handle gzip bodies
 - [ ] Routing

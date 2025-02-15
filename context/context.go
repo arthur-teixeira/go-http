@@ -325,7 +325,7 @@ func (c *Client) Do(req *parser.Request) (*parser.Response, error) {
 			shouldRedirect   bool
 			includeBodyOnHop bool
 		)
-		redirectMethod, shouldRedirect, includeBodyOnHop = redirectBehavior(req.Method, res, reqs[0])
+		redirectMethod, shouldRedirect, includeBodyOnHop = redirectBehavior(req.Method, res)
 		fmt.Printf("Should redirect: %t, method: %s, body: %t\n", shouldRedirect, redirectMethod, includeBodyOnHop)
 		if !shouldRedirect {
 			return res, nil

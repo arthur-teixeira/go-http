@@ -1,4 +1,4 @@
-package chunked_reader
+package chunkedreader
 
 import (
 	"bufio"

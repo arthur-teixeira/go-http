@@ -2,10 +2,8 @@ package parser
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
-	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
@@ -22,7 +20,12 @@ type Response struct {
 	ContentLength  int64
 	TransferCoding string
 	Close          bool
+	Major          int
+	Minor          int
+	Version        string
 	request        *Request
+	Trailer        Headers
+	Chunked        bool
 }
 
 func ParseResponse(reader *bufio.Reader) (*Response, error) {
@@ -45,6 +48,14 @@ func ParseResponse(reader *bufio.Reader) (*Response, error) {
 		return nil, StringError("Malformed HTTP response", version)
 	}
 
+	major, minor, ok := ParseHttpVersion(version)
+	if !ok {
+		return nil, StringError("Invalid protocol version", version)
+	}
+	r.Version = version
+	r.Major = major
+	r.Minor = minor
+
 	headers, err := tr.ReadHeaders()
 	if err != nil {
 		return nil, err
@@ -53,7 +64,7 @@ func ParseResponse(reader *bufio.Reader) (*Response, error) {
 
 	r.StatusCode = statusCode
 	r.Status = fmt.Sprintf("%d %s", statusCode, reason)
-	err = setBodyResponse(&r, reader)
+	err = setBody(&r, reader)
 	if err != nil {
 		return nil, err
 	}
@@ -74,49 +85,4 @@ func parseStatusLine(line string) (version string, statusCode int, reason string
 	}
 
 	return version, statusCode, reason, true
-}
-
-func setBodyResponse(r *Response, rdr *bufio.Reader) error {
-	cl, err := GetContentLengthResponse(r)
-	if err != nil {
-		return err
-	}
-  r.ContentLength = cl
-
-	if cl <= 0 {
-		r.Body = NoBody
-	} else {
-		r.Body = io.LimitReader(rdr, cl) // TODO: Close body with a ReadCloser
-	}
-
-	return nil
-}
-
-func GetContentLengthResponse(r *Response) (int64, error) {
-	contentLens := r.Headers["Content-Length"]
-	if len(contentLens) == 0 {
-		return -1, nil
-	}
-	if len(contentLens) > 1 {
-		first := textproto.TrimString(contentLens[0])
-		for _, ct := range contentLens[1:] {
-			if first != textproto.TrimString(ct) {
-				return 0, errors.New("Request has multiple content lengths")
-			}
-		}
-
-		r.Headers.Del("Content-Length")
-		r.Headers.Add("Content-Length", first)
-		contentLens = r.Headers["Content-Length"]
-	}
-	cl := textproto.TrimString(contentLens[0])
-	if cl == "" {
-		return -1, errors.New("Invalid empty Content length")
-	}
-	n, err := strconv.ParseUint(cl, 10, 63)
-	if err != nil {
-		return -1, errors.New("Bad content length")
-	}
-
-	return int64(n), nil
 }
