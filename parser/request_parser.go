@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
 
+	"github.com/arthur-teixeira/go-http/chunked_reader"
 	"github.com/arthur-teixeira/go-http/textreader"
 )
 
@@ -48,6 +50,7 @@ type Request struct {
 	Cancel        <-chan struct{}
 	Close         bool
 	ContentLength int64
+	Chunked       bool
 	Method        string
 	Headers       Headers
 	RequestURI    string
@@ -58,6 +61,7 @@ type Request struct {
 	Body          io.Reader
 	ReadBody      func() (io.ReadCloser, error)
 	Host          string
+	Trailer       Headers
 }
 
 func (r *Request) Context() context.Context {
@@ -264,19 +268,109 @@ func (noBody) Read([]byte) (int, error)         { return 0, io.EOF }
 func (noBody) Close() error                     { return nil }
 func (noBody) WriteTo(io.Writer) (int64, error) { return 0, nil }
 
+func parseTransferCoding(r *Request) error {
+	val, ok := r.Headers["Transfer-Encoding"]
+	if !ok {
+		return nil
+	}
+	delete(r.Headers, "Transfer-Encoding")
+
+	// Chunked transfer is not supported in HTTP/1.0
+	if !r.ProtoAtLeast(1, 1) {
+		return nil
+	}
+
+	if len(val) > 1 {
+		return errors.New("Too many values for Transfer-Encoding")
+	}
+
+	if !strings.EqualFold(val[0], "chunked") {
+		return errors.New("Unsupported transfer encoding")
+	}
+
+	r.Chunked = true
+	return nil
+}
+
 func setBody(r *Request, rdr *bufio.Reader) error {
+	if err := parseTransferCoding(r); err != nil {
+		return err
+	}
+
 	cl, err := GetContentLength(r)
 	if err != nil {
 		return err
 	}
 
-	if cl <= 0 {
+	r.Trailer, err = getTrailer(r.Headers, r.Chunked)
+	if err != nil {
+		return err
+	}
+
+	switch {
+	case r.Chunked:
+		r.Body = chunked_reader.NewChunkedReader(rdr)
+	case cl == 0:
 		r.Body = NoBody
-	} else {
+	default:
 		r.Body = io.LimitReader(rdr, cl)
 	}
 
 	return nil
+}
+
+func forEachHeaderElement(v string, cb func(string)) {
+	v = textproto.TrimString(v)
+	if v == "" {
+		return
+	}
+	if !strings.Contains(v, ",") {
+		cb(v)
+		return
+	}
+
+	for _, f := range strings.Split(v, ",") {
+		if f = textproto.TrimString(f); f != "" {
+			cb(f)
+		}
+	}
+}
+
+func getTrailer(headers Headers, chunked bool) (Headers, error) {
+	vv, ok := headers["Trailer"]
+	if !ok {
+		return nil, nil
+	}
+	if !chunked {
+		return nil, nil
+	}
+	headers.Del("Trailer")
+	trailer := make(Headers)
+	var err error
+	for _, v := range vv {
+		forEachHeaderElement(v, func(key string) {
+			key = http.CanonicalHeaderKey(key)
+			switch key {
+			case "Transfer-Encoding", "Trailer", "Content-Length":
+				if err == nil {
+					err = StringError("bad trailer key", key)
+					return
+				}
+			}
+			trailer[key] = nil
+			return
+		})
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(trailer) == 0 {
+		return nil, nil
+	}
+
+	return trailer, nil
 }
 
 func (r *Request) setClose() {
@@ -288,6 +382,7 @@ func GetContentLength(r *Request) (int64, error) {
 	if len(contentLens) == 0 {
 		return -1, nil
 	}
+
 	if len(contentLens) > 1 {
 		first := textproto.TrimString(contentLens[0])
 		for _, ct := range contentLens[1:] {
@@ -300,6 +395,7 @@ func GetContentLength(r *Request) (int64, error) {
 		r.Headers.Add("Content-Length", first)
 		contentLens = r.Headers["Content-Length"]
 	}
+
 	cl := textproto.TrimString(contentLens[0])
 	if cl == "" {
 		return -1, errors.New("Invalid empty Content length")
@@ -307,6 +403,11 @@ func GetContentLength(r *Request) (int64, error) {
 	n, err := strconv.ParseUint(cl, 10, 63)
 	if err != nil {
 		return -1, errors.New("Bad content length")
+	}
+
+	if r.Chunked {
+		r.Headers.Del("Content-Length")
+		return -1, nil
 	}
 
 	return int64(n), nil
