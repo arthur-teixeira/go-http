@@ -4,12 +4,11 @@
 - [X] Parse responses
 - [X] Continue request chain in case of 3xx responses
 - [X] Implement request deadline (timeout)
-- [ ] Chunked transfer-encoding
-  - [ ] Writing
-  - [X] Reading
+- [X] Chunked transfer-encoding
 - [ ] Build persistent connection manager to keep track of alive TCP sockets
 - [ ] Handle gzip bodies
 - [ ] Routing
 - [ ] Build proxy functionality (CONNECT method)
-- [ ] HTTPS (?)
 - [ ] Answer HEAD requests correctly
+- [ ] Handle cookies
+- [ ] HTTPS (?)

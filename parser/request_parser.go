@@ -357,6 +357,9 @@ func setBody(r any, rdr *bufio.Reader) error {
 		rr.Body = tr.Body
 		rr.Trailer = tr.Trailer
 		rr.Chunked = tr.Chunked
+		if rr.Chunked {
+			rr.TransferCoding = "chunked"
+		}
 		rr.ContentLength = tr.ContentLength
 	}
 
