@@ -6,6 +6,7 @@
 - [X] Implement request deadline (timeout)
 - [X] Chunked transfer-encoding
 - [ ] Build persistent connection manager to keep track of alive TCP sockets
+  - [ ] Incoming connections from listenAndServe should handled in manager
 - [ ] Handle gzip bodies
 - [ ] Routing
 - [ ] Build proxy functionality (CONNECT method)
