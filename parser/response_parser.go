@@ -9,13 +9,14 @@ import (
 	"strings"
 
 	"github.com/arthur-teixeira/go-http/textreader"
+	"github.com/arthur-teixeira/go-http/transport"
 )
 
 type Response struct {
 	Url            *url.URL
 	Status         string
 	StatusCode     int
-	Body           io.Reader
+	Body           io.ReadCloser
 	Headers        Headers
 	ContentLength  int64
 	TransferCoding string
@@ -28,7 +29,8 @@ type Response struct {
 	Chunked        bool
 }
 
-func ParseResponse(reader *bufio.Reader) (*Response, error) {
+func ParseResponse(src transport.Reusable) (*Response, error) {
+	reader := bufio.NewReader(src)
 	tr := textreader.NewTextReader(reader)
 	defer textreader.PutTextReader(tr)
 
@@ -64,7 +66,7 @@ func ParseResponse(reader *bufio.Reader) (*Response, error) {
 
 	r.StatusCode = statusCode
 	r.Status = fmt.Sprintf("%d %s", statusCode, reason)
-	err = setBody(&r, reader)
+	err = setBody(&r, reader, src)
 	if err != nil {
 		return nil, err
 	}

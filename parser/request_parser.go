@@ -14,6 +14,7 @@ import (
 
 	"github.com/arthur-teixeira/go-http/chunkedreader"
 	"github.com/arthur-teixeira/go-http/textreader"
+	"github.com/arthur-teixeira/go-http/transport"
 )
 
 type Headers map[string][]string
@@ -199,7 +200,7 @@ func ParseHttpVersion(version string) (major, minor int, ok bool) {
 	return int(maj), int(minv), true
 }
 
-func ParseRequest(request *bufio.Reader) (*Request, error) {
+func ParseRequest(request *bufio.Reader, conn transport.Reusable) (*Request, error) {
 	tr := textreader.NewTextReader(request)
 	defer textreader.PutTextReader(tr)
 
@@ -251,7 +252,7 @@ func ParseRequest(request *bufio.Reader) (*Request, error) {
 	if r.Host == "" {
 		r.Host = r.Headers.Get("Host")
 	}
-	err = setBody(&r, request)
+	err = setBody(&r, request, conn)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +294,7 @@ func parseTransferCoding(r *Transfer) error {
 }
 
 type Transfer struct {
-	Body          io.Reader
+	Body          io.ReadCloser
 	Trailer       Headers
 	Headers       Headers
 	ContentLength int64
@@ -307,8 +308,25 @@ func (t *Transfer) ProtoAtLeast(maj int, min int) bool {
 	return maj > t.Major || (maj == t.Major && min >= t.Minor)
 }
 
+type body struct {
+	conn transport.Reusable
+	src  io.Reader
+}
+
+func (b *body) Read(buf []byte) (int, error) {
+	return b.src.Read(buf)
+}
+
+func (b *body) Close() error {
+	// TODO: Read body to end and buffer
+
+	// Should release underlying connection back to the conn manager
+	b.conn.Release()
+	return nil
+}
+
 // takes in either *Request or *Response
-func setBody(r any, rdr *bufio.Reader) error {
+func setBody(r any, rdr *bufio.Reader, src transport.Reusable) error {
 	tr := Transfer{}
 
 	switch rr := r.(type) {
@@ -340,11 +358,12 @@ func setBody(r any, rdr *bufio.Reader) error {
 
 	switch {
 	case tr.Chunked:
-		tr.Body = chunkedreader.NewChunkedReader(rdr)
+		tr.Body = &body{src: chunkedreader.NewChunkedReader(rdr), conn: src}
 	case cl == 0:
+		src.Release()
 		tr.Body = NoBody
 	default:
-		tr.Body = io.LimitReader(rdr, cl)
+		tr.Body = &body{src: io.LimitReader(rdr, cl), conn: src}
 	}
 
 	switch rr := r.(type) {

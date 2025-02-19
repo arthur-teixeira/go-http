@@ -6,7 +6,11 @@
 - [X] Implement request deadline (timeout)
 - [X] Chunked transfer-encoding
 - [ ] Build persistent connection manager to keep track of alive TCP sockets
+  - [X] Change bodies to io.ReadCloser, once body is closed, release connection.
+  - [ ] Handle body closing with context (?)
   - [ ] Incoming connections from listenAndServe should handled in manager
+- [ ] Caching redirections
+- [ ] Caching responses
 - [ ] Handle gzip bodies
 - [ ] Routing
 - [ ] Build proxy functionality (CONNECT method)

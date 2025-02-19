@@ -20,6 +20,7 @@ import (
 
 	"github.com/arthur-teixeira/go-http/parser"
 	"github.com/arthur-teixeira/go-http/status"
+	"github.com/arthur-teixeira/go-http/transport"
 	"golang.org/x/net/idna"
 )
 
@@ -190,7 +191,7 @@ func (c *Context) writeStatusLine() {
 func NewContext(conn net.Conn) (*Context, error) {
 	b := bufio.NewReader(conn)
 	bw := bufio.NewWriter(conn)
-	req, err := parser.ParseRequest(b)
+  req, err := parser.ParseRequest(b, nil) // TODO: connection from manager
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +235,16 @@ func writeRequestLine(wtr *bufio.Writer, req *parser.Request) error {
 }
 
 type Client struct {
-	Timeout time.Duration
+	Timeout   time.Duration
+	transport *transport.ConnectionManager
+}
+
+func (c *Client) Transport() *transport.ConnectionManager {
+	if c.transport == nil {
+		return &transport.Manager
+	}
+
+	return c.transport
 }
 
 func (c *Client) deadline() time.Time {
@@ -314,7 +324,7 @@ func (c *Client) Do(req *parser.Request) (*parser.Response, error) {
 		reqs = append(reqs, req)
 		var err error
 		var didTimeout func() bool
-		if res, didTimeout, err = send(req, deadline); err != nil {
+		if res, didTimeout, err = send(c.Transport(), req, deadline); err != nil {
 			if !deadline.IsZero() && didTimeout() {
 				err = fmt.Errorf("%w (Timeout exceeded while waiting for headers)", err)
 			}
@@ -326,10 +336,11 @@ func (c *Client) Do(req *parser.Request) (*parser.Response, error) {
 			includeBodyOnHop bool
 		)
 		redirectMethod, shouldRedirect, includeBodyOnHop = redirectBehavior(req.Method, res)
-		fmt.Printf("Should redirect: %t, method: %s, body: %t\n", shouldRedirect, redirectMethod, includeBodyOnHop)
 		if !shouldRedirect {
 			return res, nil
-		}
+		} else {
+      fmt.Println("Redirection")
+    }
 
 		if !includeBodyOnHop {
 			includeBody = false
@@ -431,9 +442,10 @@ func canonicalAddr(url *url.URL) string {
 	return net.JoinHostPort(idnaASCIIFromURL(url), port)
 }
 
-func send(req *parser.Request, deadline time.Time) (*parser.Response, func() bool, error) {
+func send(transport *transport.ConnectionManager, req *parser.Request, deadline time.Time) (*parser.Response, func() bool, error) {
 	stopTimer, didTimeout := setRequestCancel(req, deadline)
-	sock, err := net.Dial("tcp", canonicalAddr(req.URL))
+	sock, err := transport.GetConnection(canonicalAddr(req.URL))
+
 	if err != nil {
 		return nil, alwaysFalse, err
 	}
@@ -478,15 +490,14 @@ func send(req *parser.Request, deadline time.Time) (*parser.Response, func() boo
 	err = bw.Flush()
 
 	// TODO: Read response while writing request in case Server responds before we finish.
-	rdr := bufio.NewReader(sock)
-	res, err := parser.ParseResponse(rdr)
+	res, err := parser.ParseResponse(sock)
 	if err != nil {
 		stopTimer()
 		return nil, didTimeout, err
 	}
 
 	if res.Body == nil {
-		res.Body = strings.NewReader("")
+		res.Body = io.NopCloser(strings.NewReader(""))
 	}
 
 	if !deadline.IsZero() {

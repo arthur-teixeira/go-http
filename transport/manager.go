@@ -2,12 +2,22 @@ package transport
 
 import (
 	"container/list"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
 )
 
+type Reusable interface {
+	io.ReadCloser
+	Release()
+}
+
 type conn struct {
+	id         string     // For testing purposes
 	mu         sync.Mutex // Protects the underlying connection
 	sock       net.Conn
 	targetAddr string
@@ -17,13 +27,14 @@ type conn struct {
 	closed     bool
 }
 
-// Caller should hold idleMu
-func (c *conn) Close() {
+func (c *conn) Close() error {
+	fmt.Println("Closed connection ", c.id)
 	c.closed = true
-	c.sock.Close()
+	return c.sock.Close()
 }
 
 func (c *conn) Release() {
+	fmt.Println("Connection ", c.id, " Released")
 	c.idleMu.Lock()
 	c.idle = true
 	c.idleSince = time.Now()
@@ -32,6 +43,10 @@ func (c *conn) Release() {
 
 func (c *conn) Read(b []byte) (int, error) {
 	return c.sock.Read(b)
+}
+
+func (c *conn) Write(b []byte) (int, error) {
+	return c.sock.Write(b)
 }
 
 type ConnectionManager struct {
@@ -79,13 +94,23 @@ func (m *ConnectionManager) ClearIdleConnections() {
 	}
 }
 
+func randId() string {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(bytes)
+}
+
 func (m *ConnectionManager) dial(host string) (*conn, error) {
+	fmt.Println("Dialing host")
 	netConn, err := net.Dial("tcp", host)
 	if err != nil {
 		return nil, err
 	}
 
 	return &conn{
+		id:         randId(),
 		targetAddr: host,
 		sock:       netConn,
 		idle:       false,
@@ -101,6 +126,7 @@ func (m *ConnectionManager) findConnection(conns *list.List) *conn {
 
 		conn.idleMu.Lock()
 		if conn.idle {
+      fmt.Printf("Found idle connection %s, reusing\n", conn.id)
 			conn.idle = false
 			conn.idleMu.Unlock()
 			return conn
@@ -112,9 +138,13 @@ func (m *ConnectionManager) findConnection(conns *list.List) *conn {
 }
 
 func (m *ConnectionManager) GetConnection(host string) (*conn, error) {
-	m.ConnectionMu.RLock()
+	m.ConnectionMu.Lock()
 	conns := m.Connections[host]
-	m.ConnectionMu.RUnlock()
+	if conns == nil {
+		conns = list.New()
+		m.Connections[host] = conns
+	}
+	m.ConnectionMu.Unlock()
 
 	conn := m.findConnection(conns)
 	if conn != nil {

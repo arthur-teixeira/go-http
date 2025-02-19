@@ -8,6 +8,8 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"sync"
+	"time"
 
 	"github.com/arthur-teixeira/go-http/context"
 	"github.com/arthur-teixeira/go-http/parser"
@@ -15,16 +17,34 @@ import (
 )
 
 func main() {
-	// listenAndServe(":8080")
+	g := sync.WaitGroup{}
+	for range 10 {
+		g.Add(1)
+		go func() {
+			defer g.Done()
+			res, err := call()
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer res.Body.Close()
+			// fmt.Printf("Response: %#v\n", res)
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(res.Body)
+			fmt.Printf("Got Response body: %s\n", buf.String())
+		}()
+		time.Sleep(time.Second)
+	}
 
-	// res, err :=  http.DefaultClient.Get("http://yahoo.com")
+	g.Wait()
+}
 
+func call() (*parser.Response, error) {
 	url, err := url.ParseRequestURI("http://google.com")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	res, err := context.DefaultClient.Do(&parser.Request{
+	return context.DefaultClient.Do(&parser.Request{
 		URL:     url,
 		Method:  "GET",
 		Version: "HTTP/1.1",
@@ -32,15 +52,6 @@ func main() {
 		Minor:   1,
 	})
 
-	if err != nil {
-		log.Fatal("Error on request", err)
-	}
-
-	fmt.Printf("Response: %#v\n", res)
-
-	buf := new(bytes.Buffer)
-	buf.ReadFrom(res.Body)
-	fmt.Printf("Response body: %s\n", buf.String())
 }
 
 func listenAndServe(addr string) error {
